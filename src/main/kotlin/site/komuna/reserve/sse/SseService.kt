@@ -104,13 +104,14 @@ class SseService {
     }
 
     fun broadcastHeartbeat() {
+        val heartBeat = """{"ping":"ping"}"""
         anonymousEmitters.toList().forEach { emitter ->
-            executor.submit { sendSafely(null, emitter, "heartbeat", "ping") }
+            executor.submit { sendSafely(null, emitter, "heartbeat", heartBeat) }
         }
 
         userEmitters.forEach { (userId, emitters) ->
             emitters.toList().forEach { emitter ->
-                executor.submit { sendSafely(userId, emitter, "heartbeat", "ping") }
+                executor.submit { sendSafely(userId, emitter, "heartbeat", heartBeat )}
             }
         }
     }
