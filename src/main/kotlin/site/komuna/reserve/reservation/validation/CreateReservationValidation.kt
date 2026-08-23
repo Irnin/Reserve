@@ -9,7 +9,9 @@ import site.komuna.reserve.settings.SettingsService
 import site.komuna.reserve.settings.model.SettingsKey
 import site.komuna.reserve.user.Role
 import site.komuna.reserve.user.model.UserEntity
+import java.time.LocalTime
 import java.time.OffsetDateTime
+import java.time.ZoneId
 
 class CreateReservationValidation(
     private val organizationService: OrganizationService,
@@ -67,23 +69,33 @@ class CreateReservationValidation(
     }
 
     fun isReservationInAllowedRange(reservation: CreateReservationRequest): Boolean {
-        val startAt = reservation.startAt
+        val zoneId = ZoneId.of("Europe/Warsaw")
+
+        val startAtLocal = reservation.startAt.atZoneSameInstant(zoneId).toLocalTime()
+
         val endAt = reservation.startAt.plusMinutes(reservation.duration.toMinutes())
+        val endAtLocal = endAt.atZoneSameInstant(zoneId).toLocalTime()
 
         val openingHours = settings.getIntValue(SettingsKey.RESERVATION_OPENING_HOUR)
         val closingHours = settings.getIntValue(SettingsKey.RESERVATION_CLOSING_HOUR)
 
-        if (startAt.hour < openingHours || endAt.hour > closingHours) {
-            throw CannotPerformThatActionException("Reservation is outside of allowed hours")
+        val openingTime = LocalTime.of(openingHours, 0)
+        val closingTime = LocalTime.of(closingHours, 0)
+
+        if (startAtLocal.isBefore(openingTime)) {
+            throw CannotPerformThatActionException("Reservation starts before opening hours")
         }
 
-        if (startAt.minute % 30 != 0) {
+        if (endAtLocal.isAfter(closingTime) && endAtLocal != LocalTime.MIDNIGHT) {
+            throw CannotPerformThatActionException("Reservation ends after closing hours")
+        }
+
+        if (startAtLocal.minute % 30 != 0) {
             throw CannotPerformThatActionException("Reservation time is not on a 30-minute interval")
         }
 
         return true
     }
-
     fun isDurationValid(request: CreateReservationRequest): Boolean {
         if (request.duration.toMinutes() % 60 != 0L) {
             throw CannotPerformThatActionException("Duration must be a multiple of 60 minutes")
