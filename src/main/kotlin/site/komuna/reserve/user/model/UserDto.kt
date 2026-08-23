@@ -13,7 +13,8 @@ data class UserDto(
 
     var trusted: Boolean = false,
     var preferredLanguage: String = "pl",
-    val banDto: BanDto? = null
+    val banDto: BanDto? = null,
+    var accessTokenExpiresAt: Long? = null
 ) {
     constructor(
         userEntity: UserEntity,

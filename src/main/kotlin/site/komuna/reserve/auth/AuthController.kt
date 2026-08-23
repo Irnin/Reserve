@@ -12,21 +12,34 @@ import org.springframework.web.bind.annotation.*
 import site.komuna.reserve.auth.request.LoginRequest
 import site.komuna.reserve.auth.request.RegisterRequest
 import site.komuna.reserve.common.httpError.exception.UserBannedException
+import site.komuna.reserve.security.token.TokenProperties
+import site.komuna.reserve.security.token.access.AccessTokenService
 import site.komuna.reserve.user.UserService
 import site.komuna.reserve.user.ban.BanService
 import site.komuna.reserve.user.model.UserDto
+import java.time.Duration
+import java.time.Instant
 
 @RestController
 @RequestMapping("/auth")
 class AuthController(
     private val service: AuthService,
+    private val accessTokenService: AccessTokenService,
     private val userService: UserService,
-    private val banService: BanService
+    private val banService: BanService,
+    private val tokenProperties: TokenProperties
 ) {
 
     companion object {
         private val logger = KotlinLogging.logger {}
     }
+
+    private val accessTokenDuration: Duration
+        get() = Duration.ofMinutes(tokenProperties.accessExpirationMinutes)
+
+    private val refreshTokenDuration: Duration
+        get() = Duration.ofDays(tokenProperties.refreshExpirationDays)
+
 
     @PostMapping("/register")
     fun register(@Valid @RequestBody request: RegisterRequest): ResponseEntity<Void> {
@@ -34,6 +47,7 @@ class AuthController(
         service.register(request)
         return ResponseEntity.status(HttpStatus.CREATED).build()
     }
+
 
     @PostMapping("/login")
     fun login(@RequestBody request: LoginRequest, response: HttpServletResponse): ResponseEntity<*> {
@@ -50,12 +64,13 @@ class AuthController(
 
         val loginData = service.login(request.email, request.password)
         val userDto = userService.convertToUserDto(userEntity)
+        userDto.accessTokenExpiresAt = Instant.now().plus(accessTokenDuration).toEpochMilli()
 
         val accessTokenCookie = ResponseCookie.from("access_token", loginData.accessToken.token)
             .httpOnly(true)
             .secure(true)
             .path("/")
-            .maxAge(java.time.Duration.ofMinutes(5))
+            .maxAge(accessTokenDuration)
             .sameSite("Lax")
             .build()
 
@@ -64,7 +79,7 @@ class AuthController(
             .httpOnly(true)
             .secure(true)
             .path(refreshEndpoint)
-            .maxAge(java.time.Duration.ofDays(7))
+            .maxAge(refreshTokenDuration)
             .sameSite("Lax")
             .build()
 
@@ -78,22 +93,22 @@ class AuthController(
     fun getAccessToken(
         @CookieValue("refresh_token") refreshToken: String,
         response: HttpServletResponse
-    ): ResponseEntity<Void> {
+    ): ResponseEntity<Map<String, Long>> {
         val newAccessToken = service.refresh(refreshToken)
 
         val accessTokenCookie = ResponseCookie.from("access_token", newAccessToken.token)
             .httpOnly(true)
             .secure(true)
             .path("/")
-            .maxAge(java.time.Duration.ofMinutes(5))
+            .maxAge(accessTokenDuration)
             .sameSite("Lax")
             .build()
 
         logger.info { "New access token: ${newAccessToken.token}" }
 
         response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
-        return ResponseEntity.ok().build()
-    }
+        val newExpiresAt = Instant.now().plus(accessTokenDuration).toEpochMilli()
+        return ResponseEntity.ok(mapOf("accessTokenExpiresAt" to newExpiresAt))    }
 
     @GetMapping("/confirmEmail/{verificationToken}")
     fun confirmEmail(@PathVariable verificationToken: String): ResponseEntity<Void> {
@@ -102,7 +117,7 @@ class AuthController(
     }
 
     @GetMapping("/me")
-    fun getCurrentUser(authentication: Authentication?): ResponseEntity<UserDto> {
+    fun getCurrentUser(authentication: Authentication?, @CookieValue("access_token", required = false) accessToken: String?): ResponseEntity<UserDto> {
         logger.trace { "/auth/me authentication: $authentication" }
         logger.trace { "Received a request to get current user" }
 
@@ -115,7 +130,11 @@ class AuthController(
             val userEntity = service.getMe(authentication)
             val userDto = userService.convertToUserDto(userEntity)
 
+            if (accessToken != null) {
+                userDto.accessTokenExpiresAt = accessTokenService.getExpirationMillis(accessToken)            }
             ResponseEntity.ok(userDto)
+
+
         } catch (e: IllegalStateException) {
             logger.error { "IllegalStateException $e" }
             ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()

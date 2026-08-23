@@ -46,7 +46,15 @@ class AccessTokenService(
             expires
         )
     }
+    fun getExpirationMillis(token: String): Long {
+        val claims = Jwts.parser()
+            .verifyWith(key)
+            .build()
+            .parseSignedClaims(token)
+            .payload
 
+        return claims.expiration.time
+    }
     fun generateAccessToken(user: UserEntity, refreshToken: RefreshTokenEntity) : AccessToken {
         return generateAccessToken(user, refreshToken.token)
     }
