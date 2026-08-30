@@ -164,4 +164,12 @@ class ReservationController(
         }
         return ResponseEntity.ok(reservations)
     }
+
+    @GetMapping("/summary")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    fun getReservationSummary(): ResponseEntity<Map<ReservationStatus, Long>> {
+        val summary = service.getReservationSummary()
+        return ResponseEntity.ok(summary)
+    }
+
 }

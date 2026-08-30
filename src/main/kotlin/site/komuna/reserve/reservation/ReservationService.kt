@@ -503,4 +503,9 @@ class ReservationService(
         }
     }
 
+    fun getReservationSummary(): Map<ReservationStatus, Long> {
+        val counts = repository.countReservationsByStatus()
+        return counts.associate { it.status to it.count }
+    }
+
 }
